@@ -1,0 +1,12 @@
+Test       : fpu_mandel
+Machine    : 83K9
+CPU        : AMD Ryzen 7 8745HS w/ Radeon 780M Graphics
+Cores      : 16
+Memory     : 13742 MiB
+Compiler   : g++ (Debian 12.2.0-14+deb12u1) 12.2.0
+Flags      : -O2 -march=native
+Timestamp  : 2026-10-10T08:53:01Z
+-- runs (real user sys seconds) --
+run_1	1.95 20.52 0.02	exit=0
+run_2	1.94 20.51 0.05	exit=0
+run_3	1.94 20.53 0.01	exit=0

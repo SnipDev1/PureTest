@@ -1,0 +1,5 @@
+#!/bin/sh
+echo "Restarting puretest.service..."
+systemctl restart puretest
+sleep 1
+systemctl status puretest --no-pager

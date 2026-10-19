@@ -1,0 +1,33 @@
+============================================================
+   PureTestImage: CPU CheckMate Benchmark (AIDA64 v7+ Method)
+   Algorithm: 16-Queens Permutation Search on 16x16 Chessboard
+   Vectorization: AVX-512 (Method 1032: 512-bit ZMM registers)
+   Detected Hardware Threads : 16
+============================================================
+
+--- [1/3] CPU CheckMate: Single-Thread (1 Core) ---
+  Positions evaluated : 89025960 in  0.500 s
+  Single-Core Score   :      535 MP/s
+
+--- [2/3] CPU CheckMate: Multi-Thread (16 Threads) ---
+  Positions evaluated : 1950924480 in  1.001 s
+  Multi-Core Score    :     5858 MP/s  (Scaling: 10.95x)
+
+--- [3/3] 16-Queens SIMD Collision Verification ---
+  Verification status : ALL PASSED (100%)
+
+=======================================================================
+AIDA64 CPU CHECKMATE COMPARISON:
+-----------------------------------------------------------------------
+  Benchmark Mode           | Threads | Score (MP/s) | AIDA64 Reference
+  CPU CheckMate Multi      | 16T     |        5858  |   Ryzen 9700X: ~9836
+  CPU CheckMate Single     |  1T     |         535  |   Ryzen 9700X: ~1611
+-----------------------------------------------------------------------
+  * Units: MP/s (AIDA64 v7+ Cumulative Multi-Pass Metric)
+  * Reference Hardware (MS-7E77 B840):
+      Ryzen 7 9700X HT Multi (16T) : 9836 MP/s (DDR5-6000) / 9420 MP/s (4800)
+      Ryzen 7 9700X HT Single (1T) : 1611 MP/s (DDR5-6000) / 1618 MP/s (4800)
+      Ryzen 7 8745HS Multi   (16T) : ~6980 MP/s (83K9 Platform)
+      Ryzen 7 5700X Multi    (16T) : ~2913 MP/s (AVX2 Method 1012)
+=======================================================================
+=== CPU CHECKMATE BENCHMARK COMPLETED (exit 0) ===

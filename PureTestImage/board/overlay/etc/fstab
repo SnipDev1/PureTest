@@ -1,0 +1,9 @@
+# /etc/fstab - PureTestImage
+# Root is mounted by the kernel/initramfs (root=LABEL=PUREROOT).
+# proc/sys/dev are auto-mounted by systemd.
+
+# Benchmark scratch space in RAM (keeps USB wear down during compile+run)
+tmpfs	/tmp	tmpfs	defaults,noatime,size=25%	0	0
+
+# Data partition: test sources in, reports out. nofail + 5s timeout so boot never stalls without it.
+LABEL=DATADISK	/data	vfat	defaults,noatime,nofail,x-systemd.device-timeout=5s	0	0

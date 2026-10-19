@@ -1,0 +1,28 @@
+============================================================
+   PureTestImage: CPU CheckMate Benchmark (AIDA64 v7+ Method)
+   Algorithm: 16-Queens Permutation Search on 16x16 Chessboard
+   Vectorization: AVX-512 (Method 1032: 512-bit ZMM registers)
+   Detected Hardware Threads : 8
+============================================================
+
+--- [1/3] CPU CheckMate: Single-Thread (1 Core) ---
+  Positions evaluated : 76466664 in  0.500 s
+  Single-Core Score   :      153 MP/s
+
+--- [2/3] CPU CheckMate: Multi-Thread (8 Threads) ---
+  Positions evaluated : 849537432 in  1.000 s
+  Multi-Core Score    :      849 MP/s  (Scaling: 5.56x)
+
+--- [3/3] 16-Queens SIMD Collision Verification ---
+  Verification status : ALL PASSED (100%)
+
+=======================================================================
+AIDA64 CPU CHECKMATE COMPARISON:
+-----------------------------------------------------------------------
+  Benchmark Mode           | Threads | Score (MP/s) | AIDA64 Reference
+  CPU CheckMate Multi      |  8T     |         849  |   Ryzen 9700X: ~9420
+  CPU CheckMate Single     |  1T     |         153  |   Ryzen 9700X: ~1618
+-----------------------------------------------------------------------
+  * Units: MP/s (Mega-Positions per second = Permutations / 1e6 / sec)
+=======================================================================
+=== CPU CHECKMATE BENCHMARK COMPLETED (exit 0) ===

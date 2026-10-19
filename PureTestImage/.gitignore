@@ -1,0 +1,10 @@
+# Build output lives on the server (local convenience when building here)
+/output/
+/.cache/
+# Images are large binaries; regenerate, don't commit
+*.img
+*.iso
+*.tar.gz
+# Editor / OS cruft
+.DS_Store
+Thumbs.db

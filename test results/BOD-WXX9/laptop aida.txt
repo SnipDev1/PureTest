@@ -1,0 +1,8 @@
+Checkmate
+ЦП	Частота ЦП	Системная плата	Чипсет	Память	CL-RCD-RP-RAS	Показатель
+4x Core i5-1135G7 HT	2433 МГц	[ TRIAL VERSION ]	TigerPointLP			1593 MP/s
+
+Fpu mandel
+ЦП	Частота ЦП	Системная плата	Чипсет	Память	CL-RCD-RP-RAS	Показатель
+4x Core i5-1135G7 HT	2433 МГц	[ TRIAL VERSION ]	TigerPointLP			13898
+

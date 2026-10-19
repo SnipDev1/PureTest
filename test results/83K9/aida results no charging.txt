@@ -1,0 +1,6 @@
+checkmate
+CPU	CPU Clock	Motherboard	Chipset	Memory	CL-RCD-RP-RAS	Score
+8x Ryzen 7 8745HS HT	2500 MHz	Lenovo LNVNB161216	K19.7 Int.	Quad DDR5-5600	46-45-45-90 CR1	3290 MP/s
+FPU mandel
+CPU	CPU Clock	Motherboard	Chipset	Memory	CL-RCD-RP-RAS	Score
+8x Ryzen 7 8745HS HT	2500 MHz	Lenovo LNVNB161216	K19.7 Int.	Quad DDR5-5600	46-45-45-90 CR1	36496

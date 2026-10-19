@@ -1,0 +1,8 @@
+#!/bin/sh
+if [ -f /tmp/puretest.log ]; then
+    echo "Tailing /tmp/puretest.log (Ctrl+C to stop)..."
+    tail -f /tmp/puretest.log
+else
+    echo "No /tmp/puretest.log yet. Streaming journalctl -u puretest -f (Ctrl+C to stop)..."
+    journalctl -u puretest -f
+fi

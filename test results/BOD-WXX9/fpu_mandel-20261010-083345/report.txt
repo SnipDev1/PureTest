@@ -1,0 +1,12 @@
+Test       : fpu_mandel
+Machine    : BOD-WXX9
+CPU        : 11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz
+Cores      : 8
+Memory     : 15791 MiB
+Compiler   : g++ (Debian 12.2.0-14+deb12u1) 12.2.0
+Flags      : -O2 -march=native
+Timestamp  : 2026-10-10T08:33:52Z
+-- runs (real user sys seconds) --
+run_1	2.05 11.57 0.00	exit=0
+run_2	1.98 10.75 0.00	exit=0
+run_3	1.95 10.71 0.00	exit=0

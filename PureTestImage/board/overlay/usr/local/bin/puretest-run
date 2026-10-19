@@ -1,0 +1,5 @@
+#!/bin/sh
+echo "Stopping any background puretest.service..."
+systemctl stop puretest 2>/dev/null || true
+echo "Launching test runner directly on current terminal..."
+exec /opt/puretest/runner.sh "$@"

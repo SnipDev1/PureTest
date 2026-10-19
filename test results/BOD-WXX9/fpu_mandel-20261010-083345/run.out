@@ -1,0 +1,34 @@
+============================================================
+   PureTestImage: FPU Mandel Benchmark (AIDA64 v7+ Method)
+   Algorithm: 64-bit Double Precision Mandelbrot (1024x1024)
+   Vectorization: AVX-512 (Method 43: 32 doubles / loop)
+   Detected Hardware Threads : 8
+============================================================
+
+--- [1/3] FPU Mandel: Single-Thread (1 Core) ---
+  Frames evaluated     : 10 in 0.523 s
+  Single-Core Score    :     19130  (Throughput: 19.13 FPS)
+
+--- [2/3] FPU Mandel: Multi-Thread (8 Threads) ---
+  Frames evaluated     : 64 in 1.007 s
+  Multi-Core Score     :     63639  (Throughput: 63.64 FPS, Scaling: 3.33x)
+
+--- [3/3] Fractal Mathematics Verification ---
+  Cardioid Center (0.0 + 0.0i)               -> 999 iters [PASS]
+  Period-2 Bulb (-1.0 + 0.0i)                -> 999 iters [PASS]
+  Upper Bulb (-0.1 + 0.75i)                  -> 999 iters [PASS]
+  Exterior Point (2.0 + 2.0i)                -> 0 iters [PASS]
+  Seahorse Valley Boundary (-0.75 + 0.1i)    -> 32 iters [PASS]
+  Mathematical validation : ALL PASSED (100%)
+
+=======================================================================
+AIDA64 FPU MANDEL COMPARISON:
+-----------------------------------------------------------------------
+  Benchmark Mode           | Threads |   Score   | AIDA64 Reference
+-----------------------------------------------------------------------
+  FPU Mandel Multi         | 8T      | 63639     |   Ryzen 9700X: ~104887
+  FPU Mandel Single        | 1T      | 19130     |   Ryzen 9700X:  ~16494
+-----------------------------------------------------------------------
+  * Formula: Score = Total FPS * 1000.0 (IEEE 754 Double, 1024x1024)
+=======================================================================
+=== FPU MANDEL BENCHMARK COMPLETED (exit 0) ===

@@ -1,0 +1,12 @@
+Test       : cpu_checkmate
+Machine    : 83K9
+CPU        : AMD Ryzen 7 8745HS w/ Radeon 780M Graphics
+Cores      : 16
+Memory     : 13742 MiB
+Compiler   : g++ (Debian 12.2.0-14+deb12u1) 12.2.0
+Flags      : -O2 -march=native
+Timestamp  : 2026-10-10T08:52:48Z
+-- runs (real user sys seconds) --
+run_1	1.82 19.04 0.01	exit=0
+run_2	1.80 19.05 0.00	exit=0
+run_3	1.80 19.06 0.00	exit=0

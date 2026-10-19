@@ -1,0 +1,12 @@
+Test       : cpu_checkmate
+Machine    : BOD-WXX9
+CPU        : 11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz
+Cores      : 8
+Memory     : 15791 MiB
+Compiler   : g++ (Debian 12.2.0-14+deb12u1) 12.2.0
+Flags      : -O2 -march=native
+Timestamp  : 2026-10-10T08:33:39Z
+-- runs (real user sys seconds) --
+run_1	1.81 9.85 0.00	exit=0
+run_2	1.80 9.85 0.00	exit=0
+run_3	1.80 9.85 0.00	exit=0
