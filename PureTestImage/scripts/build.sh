@@ -44,16 +44,26 @@ APT_CACHE="$CACHE_DIR/apt"
 
 cleanup() {
     set +e
-    # An aborted build can leave the chroot bind-mounts (/proc,/dev,/sys) up.
-    # They MUST be unmounted before rm -rf, or rm chokes on the procfs/sysfs
-    # entries ("cannot remove .../proc/<pid>/fd/...: Operation not permitted").
+    # An aborted build can leave chroot bind-mounts (/proc,/dev,/sys) up.
+    # Unmount all mountpoints under $TMP recursively using lazy unmount.
+    if command -v findmnt >/dev/null 2>&1; then
+        for m in $(findmnt -rn -o TARGET 2>/dev/null | grep "^$TMP" | sort -r); do
+            umount -l "$m" 2>/dev/null
+        done
+    fi
     for m in "$TMP/root/var/cache/apt/archives" \
              "$TMP/root/proc" "$TMP/root/sys" "$TMP/root/dev" \
              "$TMP/root-boot" "$TMP/esp" "$TMP/data-mnt"; do
-        [ -d "$m" ] && umount "$m" 2>/dev/null
+        [ -d "$m" ] && umount -l "$m" 2>/dev/null
     done
     [ -n "$LOOP" ] && losetup -d "$LOOP" 2>/dev/null
-    rm -rf "$TMP"
+
+    # Safety check: never rm -rf if any mount is still active under $TMP to protect host
+    if grep -q "$TMP" /proc/mounts 2>/dev/null; then
+        echo "WARNING: Mounts under $TMP are still active; skipped rm -rf to protect host system." >&2
+    else
+        rm -rf "$TMP"
+    fi
 }
 trap cleanup EXIT
 
@@ -86,7 +96,7 @@ debootstrap --arch=amd64 --variant=minbase --include=ca-certificates \
     "$RELEASE" "$TMP/root" "$MIRROR"
 
 # ========================================================= 1. Debian install
-step "Configure rootfs (kernel, g++, packages)"
+step "Configure rootfs (kernel, g++, packages, Secure Boot shim)"
 mount --bind /dev  "$TMP/root/dev"
 mount --bind /proc "$TMP/root/proc"
 mount --bind /sys  "$TMP/root/sys"
@@ -104,13 +114,11 @@ SOURCES
     # Acquire::Retries cushions transient network failures (this image is
     # usually built over a flaky VPN/WAN link from Windows).
     apt-get -o Acquire::Retries=5 update
-    # systemd-sysv is REQUIRED: it provides /sbin/init. debootstrap
-    # --variant=minbase only installs Priority:required packages, and the init
-    # system is Priority:important in bookworm -> without this explicit install
-    # the rootfs has NO init at all and the kernel panics
-    # ("Attempted to kill init! exitcode = 0x00000000").
+    # systemd-sysv is REQUIRED: it provides /sbin/init.
+    # shim-signed and grub-efi-amd64-signed provide Microsoft-signed UEFI Secure Boot support.
     apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
-        $CUSTOM_PACKAGES linux-image-amd64 kmod initramfs-tools systemd-sysv
+        $CUSTOM_PACKAGES linux-image-amd64 kmod initramfs-tools systemd-sysv \
+        shim-signed grub-efi-amd64-signed
     [ "$USE_CACHE" != "1" ] && apt-get clean
     # drop apt's downloaded package lists (~40-60 MB) — saves real space in the image
     rm -rf /var/lib/apt/lists/*
@@ -118,20 +126,29 @@ EOF
 
 [ -n "$ROOT_PASS" ] && printf 'root:%s\n' "$ROOT_PASS" | chroot "$TMP/root" chpasswd
 rm -f "$TMP/root/etc/resolv.conf"
-umount "$TMP/root/sys"
-umount "$TMP/root/proc"
-umount "$TMP/root/dev"
+umount -l "$TMP/root/sys" 2>/dev/null || true
+umount -l "$TMP/root/proc" 2>/dev/null || true
+umount -l "$TMP/root/dev" 2>/dev/null || true
 if [ "$USE_CACHE" = "1" ]; then
-    umount "$TMP/root/var/cache/apt/archives" 2>/dev/null || true
-    rm -f "$TMP/root/var/cache/apt/archives/"*.deb 2>/dev/null || true
+    umount -l "$TMP/root/var/cache/apt/archives" 2>/dev/null || true
 fi
 
-# kernel + initramfs symlinks so grub.cfg can reference stable paths
-chroot "$TMP/root" /bin/bash -c '
-    cd /boot
-    ln -sf $(ls vmlinuz-* | head -1) vmlinuz
-    ln -sf $(ls initrd.img-* | head -1) initrd.img
-'
+# kernel + initramfs symlinks so grub.cfg can reference stable paths (version sort to pick latest)
+KERNEL_IMG=$(cd "$TMP/root/boot" && ls -1v vmlinuz-* 2>/dev/null | grep -v '^vmlinuz$' | tail -1)
+INITRD_IMG=$(cd "$TMP/root/boot" && ls -1v initrd.img-* 2>/dev/null | grep -v '^initrd.img$' | tail -1)
+
+if [ -z "$KERNEL_IMG" ] || [ ! -f "$TMP/root/boot/$KERNEL_IMG" ]; then
+    echo "ERROR: Kernel image not found in $TMP/root/boot!" >&2
+    exit 1
+fi
+if [ -z "$INITRD_IMG" ] || [ ! -f "$TMP/root/boot/$INITRD_IMG" ]; then
+    echo "ERROR: Initramfs image not found in $TMP/root/boot!" >&2
+    exit 1
+fi
+
+( cd "$TMP/root/boot" && ln -sf "$KERNEL_IMG" vmlinuz && ln -sf "$INITRD_IMG" initrd.img )
+( cd "$TMP/root" && ln -sf "boot/$KERNEL_IMG" vmlinuz && ln -sf "boot/$INITRD_IMG" initrd.img )
+echo "  Boot symlinks: /boot/vmlinuz -> $KERNEL_IMG, /boot/initrd.img -> $INITRD_IMG"
 
 step "Install overlay (harness, fstab, systemd unit, rescue tools)"
 rsync -a "$REPO_ROOT/board/overlay/" "$TMP/root/"
@@ -174,16 +191,44 @@ ALIGN_BYTES=$((1024 * 1024))
 IMG_BYTES=$(( ((IMG_BYTES + ALIGN_BYTES - 1) / ALIGN_BYTES) * ALIGN_BYTES ))
 truncate -s "$IMG_BYTES" "$IMG"
 
+to_mib() {
+    local s="$1"
+    local bytes
+    bytes=$(LC_ALL=C numfmt --from=iec "${s//,/.}" 2>/dev/null || true)
+    if [ -z "$bytes" ] || [ "$bytes" -le 0 ]; then
+        bytes=$(LC_ALL=C awk -v str="${s//,/.}" '
+            BEGIN {
+                u = tolower(substr(str, length(str)));
+                v = substr(str, 1, length(str)-1) + 0;
+                if (u == "g") printf "%.0f", v * 1024 * 1024 * 1024;
+                else if (u == "m") printf "%.0f", v * 1024 * 1024;
+                else if (u == "k") printf "%.0f", v * 1024;
+                else printf "%.0f", str + 0;
+            }' 2>/dev/null || true)
+    fi
+    echo $(( (bytes + 1048576 - 1) / 1048576 ))
+}
+
+ESP_MIB=$(to_mib "$ESP_SIZE")
+ROOT_MIB=$(to_mib "$ROOT_SIZE")
+[ "$ESP_MIB" -lt 32 ] && ESP_MIB=64
+[ "$ROOT_MIB" -lt 1024 ] && ROOT_MIB=1536
+
+ESP_START=2
+ESP_END=$((ESP_START + ESP_MIB))
+ROOT_START=$ESP_END
+ROOT_END=$((ROOT_START + ROOT_MIB))
+
 # =========================================================== 3. partition
 step "Partition GPT (BIOS_boot, EFI, PUREROOT, DATADISK)"
 parted -s "$IMG" mklabel gpt
-parted -s "$IMG" mkpart BIOS_boot "$ALIGN" 2MiB
+parted -s "$IMG" mkpart BIOS_boot 1MiB "${ESP_START}MiB"
 parted -s "$IMG" set 1 bios_grub on
-parted -s "$IMG" mkpart EFI 2MiB "$ESP_SIZE"
+parted -s "$IMG" mkpart EFI "${ESP_START}MiB" "${ESP_END}MiB"
 parted -s "$IMG" set 2 boot on
 parted -s "$IMG" set 2 esp on
-parted -s "$IMG" mkpart root "$ESP_SIZE" "$ROOT_SIZE"
-parted -s "$IMG" mkpart data "$ROOT_SIZE" 100%
+parted -s "$IMG" mkpart root "${ROOT_START}MiB" "${ROOT_END}MiB"
+parted -s "$IMG" mkpart data "${ROOT_END}MiB" 100%
 # make data partition Windows-mountable: GPT type -> Microsoft basic data
 # (Windows refuses FAT partitions whose GPT type is a Linux GUID)
 parted -s "$IMG" set 4 msftdata on
@@ -225,30 +270,43 @@ fi
 
 umount "$TMP/data-mnt"
 
-# ========================================================= 4. GRUB BIOS+UEFI
+# ========================================================= 4. GRUB BIOS+UEFI & Secure Boot
 step "Install GRUB — BIOS (i386-pc, MBR+core.img into BIOS_boot part)"
 grub-install --target=i386-pc \
     --boot-directory="$TMP/root-boot/boot" \
     --modules="part_gpt fat ext2 search search_label" \
     --force "$PART" || echo "WARN: BIOS grub-install failed (UEFI image still works)"
 
-step "Install GRUB — UEFI (x86_64-efi, removable media into ESP)"
-grub-install --target=x86_64-efi \
-    --efi-directory="$TMP/esp" \
-    --boot-directory="$TMP/root-boot/boot" \
-    --modules="part_gpt fat ext2 search search_label" \
-    --removable --no-nvram || { echo "ERROR: EFI grub-install failed"; exit 1; }
+step "Install GRUB — UEFI with Secure Boot (Microsoft-signed shim + Debian-signed GRUB)"
+mkdir -p "$TMP/esp/EFI/BOOT" "$TMP/esp/boot/grub" "$TMP/esp/EFI/debian"
 
-# grub-install writes its own grub.cfg with Ubuntu/Debian auto-detection
-# cruft (searches for /.disk/info, etc.). Overwrite with ours everywhere.
-# BIOS reads /boot/grub/grub.cfg on the root partition.
-# UEFI removable reads grub.cfg NEXT TO bootx64.efi in the ESP.
+SHIM_SRC="$TMP/root-boot/usr/lib/shim/shimx64.efi.signed"
+GRUB_SIGNED_SRC="$TMP/root-boot/usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed"
+MM_SRC="$TMP/root-boot/usr/lib/shim/mmx64.efi"
+
+if [ -f "$SHIM_SRC" ] && [ -f "$GRUB_SIGNED_SRC" ]; then
+    echo "  Installing signed UEFI Secure Boot binaries (shim + signed GRUB)..."
+    cp "$SHIM_SRC" "$TMP/esp/EFI/BOOT/BOOTX64.EFI"
+    cp "$GRUB_SIGNED_SRC" "$TMP/esp/EFI/BOOT/grubx64.efi"
+    cp "$GRUB_SIGNED_SRC" "$TMP/esp/EFI/debian/grubx64.efi"
+    [ -f "$MM_SRC" ] && cp "$MM_SRC" "$TMP/esp/EFI/BOOT/mmx64.efi"
+    # NOTE: Never copy fbx64.efi to a live USB / removable image!
+    # fbx64.efi is the fallback NVRAM restorer. When present on removable media without BOOT.CSV,
+    # it fails and reboots the machine in an infinite loop ("Boot Option Restoration / Resetting in 4 seconds").
+    echo "  UEFI Secure Boot enabled: BOOTX64.EFI (shim) -> grubx64.efi (signed)"
+else
+    echo "  WARN: Signed shim/grub packages not found inside rootfs; falling back to host grub-install"
+    grub-install --target=x86_64-efi \
+        --efi-directory="$TMP/esp" \
+        --boot-directory="$TMP/root-boot/boot" \
+        --modules="part_gpt fat ext2 search search_label" \
+        --removable --no-nvram || { echo "ERROR: EFI grub-install failed"; exit 1; }
+fi
+
+# Populate grub.cfg in all discovery locations for BIOS, UEFI, and Debian signed GRUB
 cp "$REPO_ROOT/board/grub.cfg.in" "$TMP/root-boot/boot/grub/grub.cfg"
-mkdir -p "$TMP/esp/EFI/BOOT"
 cp "$REPO_ROOT/board/grub.cfg.in" "$TMP/esp/EFI/BOOT/grub.cfg"
-# Also drop it into the ESP's /boot/grub/ in case the EFI binary's $prefix
-# points there instead of to the root partition.
-mkdir -p "$TMP/esp/boot/grub"
+cp "$REPO_ROOT/board/grub.cfg.in" "$TMP/esp/EFI/debian/grub.cfg"
 cp "$REPO_ROOT/board/grub.cfg.in" "$TMP/esp/boot/grub/grub.cfg"
 
 sync

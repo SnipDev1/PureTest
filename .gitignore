@@ -1,0 +1,40 @@
+# ==============================================================================
+# PureTest Git Ignore
+# ==============================================================================
+
+# Compiled binaries and intermediate object files
+*.obj
+*.o
+*.exe
+*.dll
+*.so
+*.a
+*.lib
+
+# Output and build artifacts
+output/
+PureTestImage/output/
+.cache/
+PureTestImage/.cache/
+*.img
+*.iso
+*.tar.gz
+
+# Local configuration with private credentials
+scripts/ssh-build.env
+PureTestImage/scripts/ssh-build.env
+*.local.bat
+*.local.env
+
+# Temporary and log files
+*.log
+*.tmp
+/tmp/
+
+# OS and Editor artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+.idea/

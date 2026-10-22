@@ -37,7 +37,8 @@ static void bench_int() {
     auto t1 = now_ns();
     g_isink = x;
 
-    volatile unsigned long long a = 1, b = 1, c = 1, d = 1;
+    // 4 independent dependency chains kept in registers (genuine ILP=4)
+    unsigned long long a = 1, b = 1, c = 1, d = 1;
     auto t2 = now_ns();
     for (long long i = 0; i < ITERS; i++) {               // ILP = 4
         a = a * 2862933555777941757ULL + 3037000493ULL;
@@ -80,10 +81,10 @@ static void bench_fp() {
 }
 
 // ---------------------------------- тест 3: пропускная способность памяти
-// Читает и пишет буфер больше L3-кэша — замер bandwidth в ГБ/с.
+// Читает и пишет буфер 256 МБ — гарантированно за пределами L3 кэша любых современных CPU (DRAM bandwidth).
 static void bench_mem() {
-    const size_t SIZE = 64 * 1024 * 1024;               // 64 МБ — за пределами L3
-    const int PASSES = 4;
+    const size_t SIZE = 256 * 1024 * 1024;              // 256 МБ — за пределами L3 (включая 3D V-Cache 96-128MB)
+    const int PASSES = 2;
     std::vector<double> buf(SIZE / sizeof(double));
     for (auto &v : buf) v = 1.0;
 

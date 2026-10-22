@@ -680,7 +680,8 @@ int main() {
     printf("========================================================================\n\n");
 
     // --- Phase 1: Pass A - AIDA-Like Baseline (AVX2_3, 256-bit SIMD) ---
-    printf("--- [1/4] Pass A: AIDA-Like Baseline (AVX2_3, 256-bit SIMD) ---\n");
+    const char* pass_a_name = feat.avx2 ? "AIDA-Like Baseline (AVX2_3, 256-bit SIMD)" : "Scalar Baseline (AVX2 Not Supported)";
+    printf("--- [1/4] Pass A: %s ---\n", pass_a_name);
     BenchmarkResult res_aida_st = run_checkmate_bench(1, 1000, feat, VectorMode::AVX2, 300);
     printf("  [1 Core] Single-Thread   : %8.0f MP/s  (%8.1fM pos in %5.3f s)\n",
            res_aida_st.mps, double(res_aida_st.total_positions) / 1e6, res_aida_st.elapsed_sec);
@@ -726,10 +727,12 @@ int main() {
         std::snprintf(col_512_st, sizeof(col_512_st), "N/A (No AVX512)");
     }
 
+    const char* col_aida_hdr = feat.avx2 ? "AIDA-Like (AVX2)" : "Scalar Fallback";
+
     printf("====================================================================================================\n");
-    printf("AIDA64 CPU CHECKMATE COMPARISON: AIDA-LIKE (AVX2) vs AVX-512 ENHANCED\n");
+    printf("AIDA64 CPU CHECKMATE COMPARISON: %s vs AVX-512 ENHANCED\n", col_aida_hdr);
     printf("----------------------------------------------------------------------------------------------------\n");
-    printf("  Benchmark Mode           | Threads | AIDA-Like (AVX2) | AVX-512 Enhanced | Speedup | AIDA64 Reference\n");
+    printf("  Benchmark Mode           | Threads | %16s | AVX-512 Enhanced | Speedup | AIDA64 Reference\n", col_aida_hdr);
     printf("----------------------------------------------------------------------------------------------------\n");
     printf("  CPU CheckMate Multi      |  %2uT    |    %8.0f MP/s | %16s | %7s |   Ryzen 9700X: ~9420\n",
            hardware_threads, res_aida_mt.mps, col_512_mt, speedup_mt.c_str());

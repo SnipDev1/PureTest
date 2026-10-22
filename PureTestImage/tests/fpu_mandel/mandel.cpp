@@ -523,8 +523,9 @@ int main() {
     std::cout << std::endl;
 
     // --- Phase 1: Pass A - AIDA Baseline (AVX2 + FMA, Method 36) ---
-    std::cout << "--- [1/4] Pass A: AIDA Baseline (AVX2 + FMA, 256-bit SIMD) ---" << std::endl;
-    BenchResult res_aida_st = run_benchmark(1, 1000, (feat.avx2 && feat.fma) ? MandelSimdMode::AVX2 : MandelSimdMode::SCALAR, 300);
+    bool has_avx2_fma = feat.avx2 && feat.fma;
+    std::cout << "--- [1/4] Pass A: " << (has_avx2_fma ? "AIDA Baseline (AVX2 + FMA, 256-bit SIMD)" : "Scalar Baseline (AVX2+FMA Not Supported)") << " ---" << std::endl;
+    BenchResult res_aida_st = run_benchmark(1, 1000, has_avx2_fma ? MandelSimdMode::AVX2 : MandelSimdMode::SCALAR, 300);
     std::cout << "  [1 Core] Single-Thread   : " << std::setw(9) << res_aida_st.score 
               << "  (Throughput: " << std::fixed << std::setprecision(2) << res_aida_st.fps << " FPS, "
               << res_aida_st.total_frames << " frames in " << std::setprecision(3) << res_aida_st.elapsed_sec << " s)" << std::endl;
@@ -580,10 +581,12 @@ int main() {
 
     std::string mt_th = std::to_string(hardware_threads) + "T";
 
+    std::string col_aida_hdr = has_avx2_fma ? "AIDA Baseline (AVX2)" : "Scalar Fallback";
+
     std::cout << "====================================================================================================" << std::endl;
-    std::cout << "AIDA64 FPU MANDEL COMPARISON: AIDA BASELINE (AVX2) vs AVX-512 ENHANCED" << std::endl;
+    std::cout << "AIDA64 FPU MANDEL COMPARISON: " << col_aida_hdr << " vs AVX-512 ENHANCED" << std::endl;
     std::cout << "----------------------------------------------------------------------------------------------------" << std::endl;
-    std::cout << "  Benchmark Mode           | Threads | AIDA Baseline (AVX2) | AVX-512 Enhanced | Speedup | AIDA64 Reference" << std::endl;
+    std::cout << "  Benchmark Mode           | Threads | " << std::setw(20) << col_aida_hdr << " | AVX-512 Enhanced | Speedup | AIDA64 Reference" << std::endl;
     std::cout << "----------------------------------------------------------------------------------------------------" << std::endl;
     std::cout << "  FPU Mandel Multi         |  " << std::setw(4) << mt_th << "   | "
               << std::setw(20) << res_aida_mt.score << " | "

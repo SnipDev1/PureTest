@@ -7,14 +7,30 @@ rem  Requirements:
 rem    - SSH access to your Ubuntu Server (key or password).
 rem    - First run will configure passwordless sudo if needed (prompts once).
 rem
-rem  CONFIGURE THE THREE LINES BELOW, then double-click this file:
+rem  Configuration is loaded from scripts\ssh-build.env if present.
+rem  Otherwise, default/fallback values below are used:
 rem ---------------------------------------------------------------------------
 cd /d "%~dp0.."
-set "REMOTE_USER=snip"
-set "HOST=89.189.177.216"
-set "PORT=28882"
+set "REMOTE_USER=ubuntu"
+set "HOST=192.168.1.100"
+set "PORT=22"
 set "REMOTE_DIR=~/PureTestImage"
 set "USE_CACHE=1"
+
+if exist "%~dp0ssh-build.env" (
+    for /f "usebackq tokens=1,* delims==" %%a in ("%~dp0ssh-build.env") do (
+        set "%%a=%%b"
+    )
+)
+
+if "%HOST%"=="192.168.1.100" (
+    echo.
+    echo [!] WARNING: Default server host '192.168.1.100' detected.
+    echo     Please copy scripts\ssh-build.env.example to scripts\ssh-build.env
+    echo     and specify your actual server details before running.
+    echo.
+)
+
 set "SSH=ssh -p %PORT% %REMOTE_USER%@%HOST%"
 rem ---------------------------------------------------------------------------
 
@@ -28,7 +44,7 @@ echo [0] Checking SSH connectivity ...
 %SSH% -o BatchMode=yes -o ConnectTimeout=10 "echo ok" >nul 2>&1
 if errorlevel 1 (
     echo ERROR: cannot connect to %REMOTE_USER%@%HOST%:%PORT%
-    echo   Check SSH key/password and that the server is reachable.
+    echo   Check SSH key/password, scripts\ssh-build.env settings, and server reachability.
     pause
     exit /b 1
 )
@@ -62,8 +78,9 @@ echo   Passwordless sudo configured OK.
 :sudo_ok
 echo   sudo access OK.
 
-rem ---- Step 0c: Clean leftovers from aborted builds ----
-%SSH% "sudo umount /tmp/tmp.*/root/var/cache/apt/archives 2>/dev/null; sudo losetup -D 2>/dev/null; sudo rm -rf /tmp/tmp.* 2>/dev/null; true"
+rem ---- Step 0c: Clean leftovers from aborted builds safely ----
+%SSH% "sudo bash -c 'for m in $(findmnt -rn -o TARGET 2>/dev/null | grep \"/tmp/tmp\.\"); do umount -l \"$m\" 2>/dev/null; done'; true"
+
 
 rem ---- Step 1: Sync sources ----
 echo.
