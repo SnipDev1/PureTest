@@ -125,6 +125,14 @@ have_test() { # $1 = name
     [ -n "$1" ] && [ -d "$TESTSDIR/$1" ]
 }
 
+is_lab_test() { # $1 = test dir path or test name
+    local dir="$1"
+    if [ ! -d "$dir" ] && [ -d "$TESTSDIR/$1" ]; then
+        dir="$TESTSDIR/$1"
+    fi
+    [ -d "$dir" ] && [ -f "$dir/base.cpp" ] && [ -f "$dir/opt.cpp" ] && [ -f "$dir/inputs.txt" ]
+}
+
 # ------------------------------------------------------------------ AO (Optimization)
 get_ao_flags() { # $1 = AO level (O0, O1, O2, O3, Ofast, Os, default)
     local lvl="${1:-${AO_LEVEL:-O2}}"
@@ -448,10 +456,351 @@ run_test_all_ao() { # $1 = test name
     return 0
 }
 
+# ----------------------------------------------------------- lab benchmark
+run_lab_benchmark() { # $1 = test name
+    local name="$1"
+    have_test "$name" || { log "no such test: $name"; return 1; }
+    local srcdir="$TESTSDIR/$name"
+    is_lab_test "$srcdir" || { log "test '$name' is not a lab benchmark (requires base.cpp, opt.cpp, inputs.txt)"; return 1; }
+
+    local now
+    now=$(date -u +%Y%m%d-%H%M%S 2>/dev/null || date +%s)
+    local lab_resdir="$RESULTSDIR/$MACHINE/${name}-lab-${now}"
+    mkdir -p "$lab_resdir"
+
+    echo
+    log "================================================================================"
+    log ">>> Starting Lab Architecture Benchmark for: $name <<<"
+    log "================================================================================"
+
+    # 1. Hardware Architecture Profile
+    log "Generating hardware architecture profile..."
+    if command -v puretest-hw >/dev/null 2>&1; then
+        puretest-hw "$lab_resdir" >/dev/null 2>&1 || true
+    elif [ -x "/usr/local/bin/puretest-hw" ]; then
+        /usr/local/bin/puretest-hw "$lab_resdir" >/dev/null 2>&1 || true
+    elif [ -f "$REPO_ROOT/board/overlay/usr/local/bin/puretest-hw" ]; then
+        /bin/bash "$REPO_ROOT/board/overlay/usr/local/bin/puretest-hw" "$lab_resdir" >/dev/null 2>&1 || true
+    fi
+
+    if [ -f "$lab_resdir/machine_specs.tsv" ]; then
+        mkdir -p "$DATADIR/results"
+        cp "$lab_resdir/machine_specs.tsv" "$DATADIR/results/machine_specs_${MACHINE}.tsv" 2>/dev/null || true
+        cp "$lab_resdir/machine_specs.tsv" "$DATADIR/results/machine_specs.tsv" 2>/dev/null || true
+        cp "$lab_resdir/machine_specs.txt" "$DATADIR/results/machine_specs.txt" 2>/dev/null || true
+    fi
+
+    set_performance_mode
+
+    # 2. Compile base.cpp and opt.cpp under O0, O1, O2
+    local lab_levels=("O0" "O1" "O2")
+    local custom_flags=""
+    if [ -f "$srcdir/build.flags" ]; then
+        custom_flags=$(head -1 "$srcdir/build.flags" | sed -E 's/-O[0-9a-zA-Z]+//g; s/-flto//g; s/  */ /g; s/^ //; s/ $//')
+    fi
+
+    for lvl in "${lab_levels[@]}"; do
+        local ao_flags
+        ao_flags=$(get_ao_flags "$lvl")
+        local final_flags="-I/usr/local/include -I$srcdir $custom_flags $ao_flags"
+
+        log "Compiling $name [$lvl]: g++ $final_flags"
+
+        # base
+        local work_base="/tmp/lab_${name}_base_${lvl}"
+        rm -rf "$work_base" && mkdir -p "$work_base"
+        cp -r "$srcdir"/. "$work_base/" 2>/dev/null || true
+        # shellcheck disable=SC2086
+        ( cd "$work_base" && g++ $final_flags -o "$work_base/bin" "$srcdir/base.cpp" ) > "$work_base/build.log" 2>&1
+        if [ ! -x "$work_base/bin" ]; then
+            log "ERROR: Compilation failed for base.cpp at $lvl"
+            cat "$work_base/build.log" 2>/dev/null | tail -n 20
+            return 1
+        fi
+
+        # opt
+        local work_opt="/tmp/lab_${name}_opt_${lvl}"
+        rm -rf "$work_opt" && mkdir -p "$work_opt"
+        cp -r "$srcdir"/. "$work_opt/" 2>/dev/null || true
+        # shellcheck disable=SC2086
+        ( cd "$work_opt" && g++ $final_flags -o "$work_opt/bin" "$srcdir/opt.cpp" ) > "$work_opt/build.log" 2>&1
+        if [ ! -x "$work_opt/bin" ]; then
+            log "ERROR: Compilation failed for opt.cpp at $lvl"
+            cat "$work_opt/build.log" 2>/dev/null | tail -n 20
+            return 1
+        fi
+    done
+    log "Compilation successful for all optimization levels."
+
+    # 3. Read inputs from inputs.txt
+    local inputs=()
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=$(echo "$line" | sed 's/\r$//; s/[[:space:]]*#.*$//; /^[[:space:]]*$/d')
+        [ -n "$line" ] && inputs+=("$line")
+    done < "$srcdir/inputs.txt"
+
+    if [ ${#inputs[@]} -eq 0 ]; then
+        log "ERROR: No test inputs found in $srcdir/inputs.txt"
+        return 1
+    fi
+
+    local max_base_n="${LAB_BASE_MAX_N:-1000000}"
+    local base_timeout_hit=0
+
+    local acc_rows=()
+    local timing_rows_tsv=()
+    local timing_rows_txt=()
+
+    echo
+    log "Executing test grid (${#inputs[@]} input cases)..."
+
+    for inp in "${inputs[@]}"; do
+        local cur_x cur_n has_x=1
+        read -r cur_x cur_n <<< "$inp"
+        if [ -z "$cur_n" ]; then
+            cur_n="$cur_x"
+            cur_x="-"
+            has_x=0
+            log "-> Case n=$cur_n"
+        else
+            log "-> Case x=$cur_x, n=$cur_n"
+        fi
+
+        local stdin_data
+        if [ "$has_x" -eq 1 ]; then
+            stdin_data=$(printf "%s\n%s\n" "$cur_x" "$cur_n")
+        else
+            stdin_data=$(printf "%s\n" "$cur_n")
+        fi
+
+        local val_base_acc="-"
+        local val_opt_acc="-"
+        local t_base_levels=()
+        local t_opt_levels=()
+        local gain_levels=()
+
+        for lvl in "${lab_levels[@]}"; do
+            local work_base="/tmp/lab_${name}_base_${lvl}"
+            local work_opt="/tmp/lab_${name}_opt_${lvl}"
+
+            # --- Base execution ---
+            local t_b="-"
+            local val_b="-"
+            if [ "$base_timeout_hit" -eq 1 ] || [ "$cur_n" -gt "$max_base_n" ]; then
+                t_b="-"
+                val_b="-"
+            else
+                rm -f "$work_base/.time" "$work_base/run.out" "$work_base/run.err"
+                printf "%s" "$stdin_data" | /usr/bin/time -f "%e" -o "$work_base/.time" timeout "$TIMEOUT" "$work_base/bin" > "$work_base/run.out" 2> "$work_base/run.err"
+                local rc=$?
+                if [ $rc -eq 124 ]; then
+                    log "   [base $lvl] timed out on n=$cur_n; marking timeout and skipping future base runs"
+                    base_timeout_hit=1
+                    t_b="-"
+                    val_b="-"
+                elif [ $rc -ne 0 ]; then
+                    log "   [base $lvl] exited with code $rc"
+                    t_b="-"
+                    val_b="-"
+                else
+                    local int_t
+                    int_t=$(grep -i "Затраченное время:" "$work_base/run.out" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
+                    if [ -n "$int_t" ]; then
+                        t_b="$int_t"
+                    else
+                        t_b=$(cat "$work_base/.time" 2>/dev/null | tr -d ' \r\n')
+                    fi
+                    val_b=$(grep -oE '=\s*[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?' "$work_base/run.out" 2>/dev/null | tr -d '= ' | tail -1)
+                    [ -z "$val_b" ] && val_b="-"
+                fi
+            fi
+
+            # --- Opt execution ---
+            local t_o="-"
+            local val_o="-"
+            rm -f "$work_opt/.time" "$work_opt/run.out" "$work_opt/run.err"
+            printf "%s" "$stdin_data" | /usr/bin/time -f "%e" -o "$work_opt/.time" timeout "$TIMEOUT" "$work_opt/bin" > "$work_opt/run.out" 2> "$work_opt/run.err"
+            local rc_opt=$?
+            if [ $rc_opt -ne 0 ]; then
+                log "   [opt $lvl] failed (exit $rc_opt)"
+                t_o="-"
+                val_o="-"
+            else
+                local int_t_opt
+                int_t_opt=$(grep -i "Затраченное время:" "$work_opt/run.out" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)
+                if [ -n "$int_t_opt" ]; then
+                    t_o="$int_t_opt"
+                else
+                    t_o=$(cat "$work_opt/.time" 2>/dev/null | tr -d ' \r\n')
+                fi
+                val_o=$(grep -oE '=\s*[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?' "$work_opt/run.out" 2>/dev/null | tr -d '= ' | tail -1)
+                [ -z "$val_o" ] && val_o="-"
+            fi
+
+            # --- Gain % calculation ---
+            local cur_gain="-"
+            if [ "$t_b" != "-" ] && [ "$t_o" != "-" ]; then
+                cur_gain=$(awk -v b="$t_b" -v opt="$t_o" 'BEGIN {
+                    if (opt > 0) {
+                        g = ((b - opt) / opt) * 100.0;
+                        if (g >= 0) printf "+%.1f%%", g;
+                        else printf "%.1f%%", g;
+                    } else if (b == opt) {
+                        print "0.0%";
+                    } else {
+                        print "-";
+                    }
+                }' 2>/dev/null || echo "-")
+            fi
+
+            t_base_levels+=("$t_b")
+            t_opt_levels+=("$t_o")
+            gain_levels+=("$cur_gain")
+
+            # Capture accuracy values from O2 (or O1/O0 if O2 is missing)
+            if [ "$lvl" = "O2" ] || [ "$val_opt_acc" = "-" ]; then
+                val_opt_acc="$val_o"
+                [ "$val_b" != "-" ] && val_base_acc="$val_b"
+            fi
+        done
+
+        # Fallback for base accuracy value if O2 was skipped
+        if [ "$val_base_acc" = "-" ] && [ "$val_b" != "-" ]; then
+            val_base_acc="$val_b"
+        fi
+
+        # --- Reference Math Calculation ---
+        local val_ref="-"
+        if [ -f "$srcdir/ref.sh" ]; then
+            val_ref=$(/bin/bash "$srcdir/ref.sh" "$cur_x" "$cur_n" 2>/dev/null || echo "-")
+        elif [[ "$name" == *"pi"* ]]; then
+            val_ref=$(awk 'BEGIN { printf "%.30f", 4.0 * atan2(1, 1) }' 2>/dev/null || echo "-")
+        else
+            val_ref=$(awk -v x="$cur_x" 'BEGIN { printf "%.30f", exp(x) }' 2>/dev/null || echo "-")
+        fi
+
+        # --- Absolute Error Calculation ---
+        local err="-"
+        if [ "$val_opt_acc" != "-" ] && [ "$val_ref" != "-" ]; then
+            err=$(awk -v calc="$val_opt_acc" -v ref="$val_ref" 'BEGIN {
+                diff = calc - ref;
+                if (diff < 0) diff = -diff;
+                printf "%.10e", diff;
+            }' 2>/dev/null || echo "-")
+        fi
+
+        # Store for Table 1 (Accuracy)
+        acc_rows+=("$cur_x	$cur_n	$val_base_acc	$val_opt_acc	$val_ref	$err")
+
+        # Store for Table 2 (Timing)
+        local tb0="${t_base_levels[0]:--}" to0="${t_opt_levels[0]:--}" g0="${gain_levels[0]:--}"
+        local tb1="${t_base_levels[1]:--}" to1="${t_opt_levels[1]:--}" g1="${gain_levels[1]:--}"
+        local tb2="${t_base_levels[2]:--}" to2="${t_opt_levels[2]:--}" g2="${gain_levels[2]:--}"
+
+        timing_rows_tsv+=("$cur_x	$cur_n	$tb0	$to0	$g0	$tb1	$to1	$g1	$tb2	$to2	$g2")
+
+        local txt_line
+        txt_line=$(printf "%-8s | %-12s | %-11s | %-11s | %-11s | %-11s | %-11s | %-11s | %-11s | %-11s | %-11s" \
+            "$cur_x" "$cur_n" \
+            "${tb0}s" "${to0}s" "$g0" \
+            "${tb1}s" "${to1}s" "$g1" \
+            "${tb2}s" "${to2}s" "$g2" | sed 's/-s/-/g')
+        timing_rows_txt+=("$txt_line")
+    done
+
+    # 4. Generate Accuracy Table (TSV and TXT)
+    local acc_tsv="$lab_resdir/accuracy_table.tsv"
+    local acc_txt="$lab_resdir/accuracy_table.txt"
+
+    {
+        printf "Значение x\tЗначение n\tбез алг. опт.\tс алг. опт.\tЭталон (калькулятор)\tПогрешность\n"
+        for r in "${acc_rows[@]}"; do
+            echo "$r"
+        done
+    } > "$acc_tsv"
+
+    {
+        echo "=================================================================================================================================================="
+        echo "ТАБЛИЦА 1. ОЦЕНКА ТОЧНОСТИ ВЫЧИСЛЕНИЙ ДЛЯ ТЕСТА: $name"
+        echo "Machine   : $MACHINE ($CPUS cores, $CPU)"
+        echo "Timestamp : $(date -u +'%Y-%m-%d %H:%M:%SZ' 2>/dev/null || date)"
+        echo "--------------------------------------------------------------------------------------------------------------------------------------------------"
+        printf "%-10s | %-12s | %-32s | %-32s | %-32s | %-14s\n" "Значение x" "Значение n" "без алг. опт." "с алг. опт." "Эталон (калькулятор)" "Погрешность"
+        echo "--------------------------------------------------------------------------------------------------------------------------------------------------"
+        for r in "${acc_rows[@]}"; do
+            IFS=$'\t' read -r ax an ab ao ar ae <<< "$r"
+            printf "%-10s | %-12s | %-32s | %-32s | %-32s | %-14s\n" "$ax" "$an" "$ab" "$ao" "$ar" "$ae"
+        done
+        echo "=================================================================================================================================================="
+    } > "$acc_txt"
+
+    # 5. Generate Timing & Gain Table (TSV and TXT)
+    local time_tsv="$lab_resdir/timing_table.tsv"
+    local time_txt="$lab_resdir/timing_table.txt"
+
+    {
+        printf "Значение x\tЗначение n\tБез оптимизации (Od / O0)\t\t\tС оптимизацией по скорости (O1)\t\t\tС оптимизацией по скорости (O2)\n"
+        printf "\t\tбез алг. опт.\tс алг. опт.\tвыигрыш, %%\tбез алг. опт.\tс алг. опт.\tвыигрыш, %%\tбез алг. опт.\tс алг. опт.\tвыигрыш, %%\n"
+        for r in "${timing_rows_tsv[@]}"; do
+            echo "$r"
+        done
+    } > "$time_tsv"
+
+    {
+        echo "=================================================================================================================================================================="
+        echo "ТАБЛИЦА 2. ВРЕМЯ РАБОТЫ И ВЫИГРЫШ ОТ АЛГОРИТМИЧЕСКОЙ ОПТИМИЗАЦИИ: $name"
+        echo "Machine   : $MACHINE ($CPUS cores, $CPU)"
+        echo "Timestamp : $(date -u +'%Y-%m-%d %H:%M:%SZ' 2>/dev/null || date)"
+        echo "------------------------------------------------------------------------------------------------------------------------------------------------------------------"
+        printf "%-8s | %-12s | %-37s | %-37s | %-37s\n" "x" "n" "Без оптимизации (Od / O0)" "С оптимизацией по скорости (O1)" "С оптимизацией по скорости (O2)"
+        printf "%-8s | %-12s | %-11s | %-11s | %-11s | %-11s | %-11s | %-11s | %-11s | %-11s | %-11s\n" "" "" "без опт." "с опт." "выигрыш %" "без опт." "с опт." "выигрыш %" "без опт." "с опт." "выигрыш %"
+        echo "------------------------------------------------------------------------------------------------------------------------------------------------------------------"
+        for line in "${timing_rows_txt[@]}"; do
+            echo "$line"
+        done
+        echo "=================================================================================================================================================================="
+    } > "$time_txt"
+
+    # 6. Display to console and persist
+    echo
+    cat "$acc_txt"
+    echo
+    cat "$time_txt"
+    echo
+
+    mkdir -p "$DATADIR/results"
+    cp "$acc_tsv" "$DATADIR/results/${name}_accuracy.tsv" 2>/dev/null || true
+    cp "$acc_txt" "$DATADIR/results/${name}_accuracy.txt" 2>/dev/null || true
+    cp "$time_tsv" "$DATADIR/results/${name}_timing.tsv" 2>/dev/null || true
+    cp "$time_txt" "$DATADIR/results/${name}_timing.txt" 2>/dev/null || true
+
+    {
+        echo
+        cat "$acc_txt"
+        echo
+        cat "$time_txt"
+        echo
+    } >> "$DATADIR/out.txt" 2>/dev/null || true
+
+    sync
+    log "[✓] Lab benchmark complete!"
+    log "Word tables generated on DATADISK:"
+    log "  1. Accuracy Table : $DATADIR/results/${name}_accuracy.tsv"
+    log "  2. Timing Table   : $DATADIR/results/${name}_timing.tsv"
+    log "  3. Hardware Specs : $DATADIR/results/machine_specs_${MACHINE}.tsv"
+    log "  Tip: Open .tsv files and copy/paste directly into Microsoft Word for instant native tables."
+    return 0
+}
+
 run_test() { # $1 = test name, $2 = optional ao_level
     have_test "$1" || { log "no such test: $1"; return 1; }
     local name="$1"
     local req_ao="${2:-$AO_LEVEL}"
+
+    if is_lab_test "$TESTSDIR/$name"; then
+        run_lab_benchmark "$name"
+        return $?
+    fi
 
     if [ "$req_ao" = "all" ] || [ "$req_ao" = "ALL" ]; then
         run_test_all_ao "$name"
@@ -625,22 +974,30 @@ menu() {
         local found
         found=$(list_tests)
         if [ -n "$found" ]; then
-            echo "$found" | sed 's/^/  * /'
+            for t in $found; do
+                if is_lab_test "$TESTSDIR/$t"; then
+                    echo "  * $t  [lab benchmark (base vs opt)]"
+                else
+                    echo "  * $t"
+                fi
+            done
         else
             echo "  (no tests found in $TESTSDIR)"
         fi
         echo
         echo "Actions:"
-        echo "  [a]  Run ALL tests (current AO: $AO_LEVEL)"
-        echo "  [ao] Run test across ALL AO levels (O0..Ofast comparison matrix)"
-        echo "  [o]  Change AO (Optimization) level [Current: $AO_LEVEL]"
-        echo "  [l]  Run test list from run_list.txt / AUTORUN"
-        echo "  [s]  Drop to interactive root shell"
-        echo "  [c]  Clear screen"
-        echo "  [q]  Exit to shell"
-        echo "  [r]  Reboot machine"
-        echo "  [p]  Power off"
-        echo "Or type: <testname> [AO]  (e.g. 'bench_cpu', 'bench_cpu O3', 'bench_cpu all')"
+        echo "  [a]   Run ALL tests (current AO: $AO_LEVEL)"
+        echo "  [ao]  Run test across ALL AO levels (O0..Ofast comparison matrix)"
+        echo "  [lab] Run Lab Benchmark (base.cpp vs opt.cpp comparison matrix for Word)"
+        echo "  [hw]  Generate Hardware Architecture Profile (machine_specs.tsv)"
+        echo "  [o]   Change AO (Optimization) level [Current: $AO_LEVEL]"
+        echo "  [l]   Run test list from run_list.txt / AUTORUN"
+        echo "  [s]   Drop to interactive root shell"
+        echo "  [c]   Clear screen"
+        echo "  [q]   Exit to shell"
+        echo "  [r]   Reboot machine"
+        echo "  [p]   Power off"
+        echo "Or type: <testname> [AO]  (e.g. 'bench_cpu', 'lab lab1_exp', 'hw', 'ao bench_cpu')"
         echo "----------------------------------------------------------"
         printf "puretest [%s]> " "$AO_LEVEL"
         if ! read -r choice; then
@@ -668,6 +1025,52 @@ menu() {
                     else
                         run_test_all_ao "$ao_target"
                     fi
+                fi
+                echo
+                printf "Press Enter to return to menu... "
+                read -r _ 2>/dev/null || true
+                ;;
+            lab|LAB)
+                echo
+                local lab_tests=()
+                for t in $(list_tests); do
+                    if is_lab_test "$TESTSDIR/$t"; then
+                        lab_tests+=("$t")
+                    fi
+                done
+                local def_lab="lab1_exp"
+                if [ ${#lab_tests[@]} -gt 0 ]; then
+                    def_lab="${lab_tests[0]}"
+                    echo "Available lab benchmarks: ${lab_tests[*]}"
+                else
+                    echo "Available tests: $(list_tests | tr '\n' ' ')"
+                fi
+                printf "Enter lab test name [default: %s]: " "$def_lab"
+                read -r lab_target
+                [ -z "$lab_target" ] && lab_target="$def_lab"
+                if [ -n "$lab_target" ]; then
+                    run_lab_benchmark "$lab_target"
+                fi
+                echo
+                printf "Press Enter to return to menu... "
+                read -r _ 2>/dev/null || true
+                ;;
+            hw|HW)
+                echo
+                log "Collecting full hardware architecture profile..."
+                mkdir -p "$DATADIR/results"
+                if command -v puretest-hw >/dev/null 2>&1; then
+                    puretest-hw "$DATADIR/results"
+                elif [ -x "/usr/local/bin/puretest-hw" ]; then
+                    /usr/local/bin/puretest-hw "$DATADIR/results"
+                elif [ -f "$REPO_ROOT/board/overlay/usr/local/bin/puretest-hw" ]; then
+                    /bin/bash "$REPO_ROOT/board/overlay/usr/local/bin/puretest-hw" "$DATADIR/results"
+                fi
+                if [ -f "$DATADIR/results/machine_specs.txt" ]; then
+                    echo
+                    cat "$DATADIR/results/machine_specs.txt"
+                    echo
+                    log "Hardware specs saved to: $DATADIR/results/machine_specs.tsv (Word-ready)"
                 fi
                 echo
                 printf "Press Enter to return to menu... "
@@ -759,7 +1162,14 @@ menu() {
                 local cmd_test cmd_ao
                 read -r cmd_test cmd_ao <<< "$choice"
 
-                if [ "$cmd_test" = "ao" ] && [ -n "$cmd_ao" ]; then
+                if [ "$cmd_test" = "lab" ]; then
+                    local lab_target="${cmd_ao:-lab1_exp}"
+                    run_lab_benchmark "$lab_target"
+                elif [ "$cmd_test" = "hw" ]; then
+                    mkdir -p "$DATADIR/results"
+                    puretest-hw "$DATADIR/results" 2>/dev/null || /usr/local/bin/puretest-hw "$DATADIR/results" 2>/dev/null || true
+                    cat "$DATADIR/results/machine_specs.txt" 2>/dev/null || true
+                elif [ "$cmd_test" = "ao" ] && [ -n "$cmd_ao" ]; then
                     if [ "$cmd_ao" = "all" ]; then
                         for t in $(list_tests); do run_test_all_ao "$t"; done
                     else
@@ -770,7 +1180,7 @@ menu() {
                     run_test "$cmd_test" "$target_ao"
                 else
                     echo "Unknown command or test: $choice"
-                    echo "Type a test name, 'ao <testname>', or select an action [a/ao/o/l/s/c/q/r/p]."
+                    echo "Type a test name, 'lab <testname>', 'ao <testname>', 'hw', or select an action [a/ao/lab/hw/o/l/s/c/q/r/p]."
                 fi
                 echo
                 printf "Press Enter to return to menu... "

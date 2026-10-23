@@ -317,6 +317,7 @@ echo -e "${C_GREEN}${C_BOLD}====================================================
 echo -e "  * ${C_BOLD}UEFI Boot Loop Fixed${C_RESET}     : fbx64.efi removed (boots straight to GRUB)"
 echo -e "  * ${C_BOLD}GRUB Symlinks Fixed${C_RESET}      : /boot/vmlinuz -> actual kernel"
 echo -e "  * ${C_BOLD}AO Support Installed${C_RESET}     : runner.sh updated (O0, O1, O2, O3, Ofast, all)"
+echo -e "  * ${C_BOLD}Lab Benchmarks Ready${C_RESET}     : base vs opt matrix, puretest-hw profile, windows.h shim"
 echo -e "  * ${C_BOLD}Tests Synchronized${C_RESET}       : latest C++ test sources updated"
 echo
 echo -e "Вы можете извлечь флешку и загрузить целевой ноутбук!"
