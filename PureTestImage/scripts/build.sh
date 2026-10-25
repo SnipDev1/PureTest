@@ -37,10 +37,11 @@ ROOT_SIZE="${ROOT_SIZE:-1.5G}"                 # root partition size
 ESP_SIZE="${ESP_SIZE:-64MiB}"                  # EFI System Partition size
 ALIGN="1MiB"
 ROOT_PASS="${ROOT_PASS:-puretest}"             # default root password: puretest
-CUSTOM_PACKAGES="${CUSTOM_PACKAGES:-g++ make binutils time usbutils pciutils util-linux less nano firmware-linux-free firmware-realtek firmware-iwlwifi firmware-atheros firmware-misc-nonfree}"
+CUSTOM_PACKAGES="${CUSTOM_PACKAGES:-g++ make binutils time usbutils pciutils util-linux less nano firmware-linux-free firmware-realtek firmware-iwlwifi firmware-atheros firmware-misc-nonfree amd64-microcode intel-microcode}"
 USE_CACHE="${USE_CACHE:-1}"                    # 1 = cache debian .deb packages; 0 = fresh download
 CACHE_DIR="${CACHE_DIR:-$REPO_ROOT/.cache}"
 APT_CACHE="$CACHE_DIR/apt"
+USE_BACKPORTS_KERNEL="${USE_BACKPORTS_KERNEL:-1}" # 1 = Linux 6.12+ LTS from bookworm-backports (supports Zen 5 & modern CPUs)
 
 cleanup() {
     set +e
@@ -110,6 +111,7 @@ chroot "$TMP/root" /bin/bash -s <<EOF
     cat > /etc/apt/sources.list <<SOURCES
 deb $MIRROR $RELEASE main contrib non-free non-free-firmware
 deb $MIRROR ${RELEASE}-updates main contrib non-free non-free-firmware
+deb $MIRROR ${RELEASE}-backports main contrib non-free non-free-firmware
 SOURCES
     # Acquire::Retries cushions transient network failures (this image is
     # usually built over a flaky VPN/WAN link from Windows).
@@ -117,8 +119,18 @@ SOURCES
     # systemd-sysv is REQUIRED: it provides /sbin/init.
     # shim-signed and grub-efi-amd64-signed provide Microsoft-signed UEFI Secure Boot support.
     apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
-        $CUSTOM_PACKAGES linux-image-amd64 kmod initramfs-tools systemd-sysv \
+        $CUSTOM_PACKAGES kmod initramfs-tools systemd-sysv \
         shim-signed grub-efi-amd64-signed
+
+    # Modern Linux kernel (6.12+ LTS from backports) + cpupower for Zen 5 (Family 1Ah) & modern hardware
+    if [ "$USE_BACKPORTS_KERNEL" = "1" ] && [ "$RELEASE" = "bookworm" ]; then
+        echo "  Installing modern kernel (Linux 6.12+ LTS) and linux-cpupower from ${RELEASE}-backports..."
+        apt-get -o Acquire::Retries=5 install -y --no-install-recommends -t ${RELEASE}-backports \
+            linux-image-amd64 linux-cpupower
+    else
+        apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+            linux-image-amd64
+    fi
     [ "$USE_CACHE" != "1" ] && apt-get clean
     # drop apt's downloaded package lists (~40-60 MB) — saves real space in the image
     rm -rf /var/lib/apt/lists/*

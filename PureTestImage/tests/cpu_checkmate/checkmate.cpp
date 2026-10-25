@@ -524,16 +524,15 @@ static BenchmarkResult run_checkmate_bench(int num_threads, int duration_ms, con
     }
 
     // Main measurement
+    std::atomic<bool> start_flag{false};
     std::atomic<bool> stop_flag{false};
     std::vector<uint64_t> thread_positions(num_threads, 0);
     std::vector<uint64_t> thread_solutions(num_threads, 0);
     std::vector<std::thread> workers;
     workers.reserve(num_threads);
 
-    auto t_start = std::chrono::high_resolution_clock::now();
-
     for (int t = 0; t < num_threads; ++t) {
-        workers.emplace_back([t, &stop_flag, &thread_positions, &thread_solutions, &feat, mode]() {
+        workers.emplace_back([t, &start_flag, &stop_flag, &thread_positions, &thread_solutions, &feat, mode]() {
 #if defined(_WIN32)
             SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL);
 #endif
@@ -546,6 +545,13 @@ static BenchmarkResult run_checkmate_bench(int num_threads, int duration_ms, con
 
             uint64_t pos = 0;
             uint64_t sols = 0;
+
+            // Wait until all threads are spawned so they start simultaneously
+            while (!start_flag.load(std::memory_order_acquire)) {
+#if defined(__x86_64__) || defined(_M_X64)
+                _mm_pause();
+#endif
+            }
 
             while (!stop_flag.load(std::memory_order_relaxed)) {
                 if (mode == VectorMode::AVX512 && feat.avx512bw) {
@@ -562,12 +568,15 @@ static BenchmarkResult run_checkmate_bench(int num_threads, int duration_ms, con
         });
     }
 
+    auto t_start = std::chrono::steady_clock::now();
+    start_flag.store(true, std::memory_order_release);
+
     std::this_thread::sleep_for(std::chrono::milliseconds(duration_ms));
     stop_flag.store(true, std::memory_order_relaxed);
 
     for (auto& w : workers) w.join();
 
-    auto t_end = std::chrono::high_resolution_clock::now();
+    auto t_end = std::chrono::steady_clock::now();
     double sec = std::chrono::duration<double>(t_end - t_start).count();
 
     uint64_t all_positions = 0;

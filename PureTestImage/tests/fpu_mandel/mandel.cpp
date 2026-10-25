@@ -402,21 +402,28 @@ static BenchResult run_benchmark(int num_threads, int duration_ms, MandelSimdMod
     }
 
     // Main measurement
+    std::atomic<bool> start_flag{false};
     std::atomic<bool> stop_flag{false};
     std::vector<double> thread_fps(num_threads, 0.0);
     std::vector<int> thread_frames(num_threads, 0);
     std::vector<std::thread> workers;
     workers.reserve(num_threads);
 
-    auto t_start = std::chrono::high_resolution_clock::now();
-
     for (int t = 0; t < num_threads; ++t) {
-        workers.emplace_back([t, &stop_flag, &thread_fps, &thread_frames, mode]() {
+        workers.emplace_back([t, &start_flag, &stop_flag, &thread_fps, &thread_frames, mode]() {
 #if defined(_WIN32)
             SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_NORMAL);
 #endif
             std::vector<uint16_t> fb(BENCH_WIDTH * BENCH_HEIGHT, 0);
-            auto t0 = std::chrono::high_resolution_clock::now();
+
+            // Wait until all threads are spawned so they start simultaneously
+            while (!start_flag.load(std::memory_order_acquire)) {
+#if defined(__x86_64__) || defined(_M_X64)
+                _mm_pause();
+#endif
+            }
+
+            auto t0 = std::chrono::steady_clock::now();
             int frames = 0;
             while (!stop_flag.load(std::memory_order_relaxed)) {
                 if (mode == MandelSimdMode::AVX512) {
@@ -428,19 +435,22 @@ static BenchResult run_benchmark(int num_threads, int duration_ms, MandelSimdMod
                 }
                 frames++;
             }
-            auto t1 = std::chrono::high_resolution_clock::now();
+            auto t1 = std::chrono::steady_clock::now();
             double sec = std::chrono::duration<double>(t1 - t0).count();
             thread_fps[t] = (sec > 0.0) ? (double(frames) / sec) : 0.0;
             thread_frames[t] = frames;
         });
     }
 
+    auto t_start = std::chrono::steady_clock::now();
+    start_flag.store(true, std::memory_order_release);
+
     std::this_thread::sleep_for(std::chrono::milliseconds(duration_ms));
     stop_flag.store(true, std::memory_order_relaxed);
 
     for (auto& w : workers) w.join();
 
-    auto t_end = std::chrono::high_resolution_clock::now();
+    auto t_end = std::chrono::steady_clock::now();
     double total_sec = std::chrono::duration<double>(t_end - t_start).count();
 
     double total_fps = 0.0;

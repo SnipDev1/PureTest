@@ -121,10 +121,20 @@ sudo -E IMG_SIZE=6G ROOT_SIZE=2G ESP_SIZE=128MiB bash scripts/build.sh
 | `IMG_SIZE` | `2.6G` | общий размер файла (флешка должна быть >= этого) |
 | `ROOT_SIZE` | `1.5G` | корневой раздел; с g++ занято ~0.9 ГБ; не ниже 1.2G |
 | `ESP_SIZE` | `64MiB` | EFI-раздел (GRUB нужен ~15 МБ) |
-| `CUSTOM_PACKAGES` | `g++ make binutils time` | доп. пакеты (например `libomp-dev` для OpenMP) |
+| `USE_BACKPORTS_KERNEL` | `1` | ядро Linux 6.12+ LTS из backports (поддержка Zen 5 / Ryzen 9000 и modern CPPC) |
+| `CUSTOM_PACKAGES` | `g++ make binutils time ...` | доп. пакеты (включает amd64-microcode и intel-microcode) |
 | `ROOT_PASS` | — | пароль root для консоли образа (опционально) |
 
 Раздел `data` занимает остаток: `IMG_SIZE - ROOT_SIZE - ESP`.
+
+> **Поддержка новейших архитектур (AMD Zen 5 / Ryzen 9000, Intel 13/14+ пок.)**:
+> В образ по умолчанию устанавливается актуальное ядро **Linux 6.12+ LTS** из `bookworm-backports` с драйвером `amd-pstate-epp` в автономном режиме (`amd_pstate=active`), микрокодом процессоров (`amd64-microcode`, `intel-microcode`) и утилитой `linux-cpupower`. Это обеспечивает корректный аппаратный буст частот (PBO до 5.5+ ГГц) без сброса и троттлинга на современных процессорах.
+>
+> **Обновление ядра на готовой флешке без пересборки**:
+> Если у вас уже записана флешка PureTest со старым ядром 6.1, её можно обновить до 6.12+ за одну команду:
+> ```bash
+> sudo ./scripts/update_usb.sh --upgrade-kernel
+> ```
 
 ---
 

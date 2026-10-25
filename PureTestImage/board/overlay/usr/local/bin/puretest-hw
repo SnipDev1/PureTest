@@ -54,6 +54,12 @@ else
     FREQ_STR="Variable / ACPI Managed (${BOOST_TECH})"
 fi
 
+SCALING_DRIVER=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver 2>/dev/null || echo "")
+SCALING_GOV=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo "")
+if [ -n "$SCALING_DRIVER" ]; then
+    FREQ_STR="${FREQ_STR} [${SCALING_DRIVER}/${SCALING_GOV:-performance}]"
+fi
+
 # -----------------------------------------------------------------------------
 # 4. Detailed Cache Hierarchy (L1d, L1i, L2, L3)
 # -----------------------------------------------------------------------------

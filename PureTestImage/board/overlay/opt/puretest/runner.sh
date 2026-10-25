@@ -58,7 +58,7 @@ log "=========================================================="
 
 # ----------------------------------------------------------- cpu governor
 set_performance_mode() {
-    local gov="${1:-performance}"
+    local gov="${1:-${GOVERNOR:-performance}}"
     log "Configuring CPU governor to '$gov'..."
     for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
         [ -f "$g" ] && echo "$gov" > "$g" 2>/dev/null || true
@@ -66,6 +66,23 @@ set_performance_mode() {
     for epp in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
         [ -f "$epp" ] && echo "$gov" > "$epp" 2>/dev/null || true
     done
+
+    # Ensure CPU boost is active for both AMD (CPB/PBO) and Intel (Turbo)
+    if [ -f /sys/devices/system/cpu/cpufreq/boost ]; then
+        echo 1 > /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || true
+    fi
+    for b in /sys/devices/system/cpu/cpu*/cpufreq/boost; do
+        [ -f "$b" ] && echo 1 > "$b" 2>/dev/null || true
+    done
+    if [ -f /sys/devices/system/cpu/intel_pstate/no_turbo ]; then
+        echo 0 > /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null || true
+    fi
+
+    # Apply via cpupower utility if available
+    if command -v cpupower >/dev/null 2>&1; then
+        cpupower frequency-set -g "$gov" >/dev/null 2>&1 || true
+        cpupower set -b 0 >/dev/null 2>&1 || true
+    fi
 }
 set_performance_mode
 
@@ -369,11 +386,21 @@ run_test_all_ao() { # $1 = test name
             i=$((i+1))
             TIMING=""
             log "run $i/$RUNS [AO: $lvl]"
+            local cur_r="-" cur_u="-" cur_s="-"
             if run_once "$work" "$i"; then
                 if [ -n "$TIMING" ]; then
-                    read -r r u s <<< "$TIMING"
-                    t_real="$r"
-                    t_user="$u"
+                    read -r cur_r cur_u cur_s <<< "$TIMING"
+                    if [ "$t_real" = "-" ]; then
+                        t_real="$cur_r"
+                        t_user="$cur_u"
+                    else
+                        local is_faster
+                        is_faster=$(awk -v cur="$cur_r" -v best="$t_real" 'BEGIN { if (cur > 0 && (best <= 0 || cur < best)) print 1; else print 0 }' 2>/dev/null || echo 0)
+                        if [ "$is_faster" -eq 1 ]; then
+                            t_real="$cur_r"
+                            t_user="$cur_u"
+                        fi
+                    fi
                 fi
             else
                 log "WARNING: Run $i failed (exit $?)"
@@ -385,7 +412,7 @@ run_test_all_ao() { # $1 = test name
             {
                 if [ "$RUNS" -gt 1 ]; then
                     echo "================================================================================"
-                    echo "RUN $i/$RUNS [AO: $lvl]  (Real: ${t_real}s)"
+                    echo "RUN $i/$RUNS [AO: $lvl]  (Real: ${cur_r}s)"
                     echo "--------------------------------------------------------------------------------"
                 fi
                 cat "$work/run.out"

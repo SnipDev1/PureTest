@@ -19,12 +19,12 @@ insmod linux
 search --no-floppy --set=root --label PUREROOT
 
 menuentry "PureTestImage - benchmark" {
-	linux /boot/vmlinuz root=LABEL=PUREROOT rw quiet console=tty1 console=ttyS0
+	linux /boot/vmlinuz root=LABEL=PUREROOT rw quiet console=tty1 console=ttyS0 amd_pstate=active cpufreq.default_governor=performance
 	initrd /boot/initrd.img
 }
 
 menuentry "PureTestImage - verbose debug boot" {
-	linux /boot/vmlinuz root=LABEL=PUREROOT rw systemd.show_status=1 systemd.log_level=debug console=tty1 console=ttyS0
+	linux /boot/vmlinuz root=LABEL=PUREROOT rw systemd.show_status=1 systemd.log_level=debug console=tty1 console=ttyS0 amd_pstate=active cpufreq.default_governor=performance
 	initrd /boot/initrd.img
 }
 

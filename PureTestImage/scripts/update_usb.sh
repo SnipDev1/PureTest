@@ -41,21 +41,38 @@ log_warn()  { echo -e "${C_YELLOW}${C_BOLD}[!]${C_RESET} $*"; }
 log_err()   { echo -e "${C_RED}${C_BOLD}[ERROR]${C_RESET} $*" >&2; }
 
 # -----------------------------------------------------------------------------
-# Help message (no root needed)
+# Arguments & Help message (no root needed)
 # -----------------------------------------------------------------------------
-TARGET_ARG="${1:-}"
+UPGRADE_KERNEL=0
+TARGET_ARG=""
 
-if [ "$TARGET_ARG" = "-h" ] || [ "$TARGET_ARG" = "--help" ]; then
-    echo "Usage: $0 [DEVICE]"
-    echo
-    echo "Automatically detects and updates a PureTest USB flash drive."
-    echo "Fixes UEFI/GRUB boot files and syncs runner.sh (with AO support), configs, and tests."
-    echo
-    echo "Examples:"
-    echo "  $0              # Auto-detects drive via labels (EFIBOOT, PUREROOT, DATADISK)"
-    echo "  $0 /dev/sde     # Updates specific drive"
-    exit 0
-fi
+for arg in "$@"; do
+    case "$arg" in
+        -h|--help)
+            echo "Usage: $0 [OPTIONS] [DEVICE]"
+            echo
+            echo "Automatically detects and updates a PureTest USB flash drive."
+            echo "Fixes UEFI/GRUB boot files and syncs runner.sh (with AO support), configs, and tests."
+            echo
+            echo "Options:"
+            echo "  -k, --upgrade-kernel   Upgrade Linux kernel in-place to 6.12+ LTS (Debian backports)"
+            echo "                         with Zen 5 (Ryzen 9000/9700X) support and CPU microcode."
+            echo "  -h, --help             Show this help message"
+            echo
+            echo "Examples:"
+            echo "  $0                     # Auto-detects drive via labels (EFIBOOT, PUREROOT, DATADISK)"
+            echo "  $0 --upgrade-kernel    # Auto-detects drive and upgrades kernel to 6.12+"
+            echo "  $0 /dev/sde            # Updates specific drive"
+            exit 0
+            ;;
+        -k|--upgrade-kernel)
+            UPGRADE_KERNEL=1
+            ;;
+        *)
+            TARGET_ARG="$arg"
+            ;;
+    esac
+done
 
 # -----------------------------------------------------------------------------
 # Root elevation
@@ -95,6 +112,9 @@ TMP_DIRS=()
 cleanup() {
     set +e
     for m in "${TMP_DIRS[@]}"; do
+        umount -l "$m/sys" 2>/dev/null || true
+        umount -l "$m/proc" 2>/dev/null || true
+        umount -l "$m/dev" 2>/dev/null || true
         if mountpoint -q "$m" 2>/dev/null; then
             umount "$m" 2>/dev/null || umount -l "$m" 2>/dev/null || true
         fi
@@ -211,6 +231,36 @@ if [ -n "$ROOT_DEV" ] && [ -b "$ROOT_DEV" ]; then
     
     mount "$ROOT_DEV" "$MNT_ROOT"
     
+    if [ "$UPGRADE_KERNEL" = "1" ]; then
+        log_step "Upgrading kernel inside PUREROOT to Debian backports (Linux 6.12+ LTS)..."
+        cp /etc/resolv.conf "$MNT_ROOT/etc/resolv.conf" 2>/dev/null || true
+        mount --bind /dev "$MNT_ROOT/dev"
+        mount --bind /proc "$MNT_ROOT/proc"
+        mount --bind /sys "$MNT_ROOT/sys"
+
+        chroot "$MNT_ROOT" /bin/bash -s << 'EOF_UPGRADE'
+            set -e
+            export DEBIAN_FRONTEND=noninteractive
+            echo 'APT::Install-Recommends "false";' > /etc/apt/apt.conf.d/99puretest
+            cat > /etc/apt/sources.list << SOURCES
+deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware
+SOURCES
+            apt-get -o Acquire::Retries=5 update
+            apt-get -o Acquire::Retries=5 install -y --no-install-recommends -t bookworm-backports \
+                linux-image-amd64 linux-cpupower amd64-microcode intel-microcode
+            apt-get clean
+            rm -rf /var/lib/apt/lists/*
+EOF_UPGRADE
+
+        umount -l "$MNT_ROOT/sys" 2>/dev/null || true
+        umount -l "$MNT_ROOT/proc" 2>/dev/null || true
+        umount -l "$MNT_ROOT/dev" 2>/dev/null || true
+        rm -f "$MNT_ROOT/etc/resolv.conf"
+        log_ok "Kernel upgrade to 6.12+ and microcode installation completed!"
+    fi
+
     # Locate real kernel and initramfs in /boot
     K_REAL=$(cd "$MNT_ROOT/boot" && ls -1v vmlinuz-* 2>/dev/null | grep -v '^vmlinuz$' | tail -1 || true)
     I_REAL=$(cd "$MNT_ROOT/boot" && ls -1v initrd.img-* 2>/dev/null | grep -v '^initrd.img$' | tail -1 || true)

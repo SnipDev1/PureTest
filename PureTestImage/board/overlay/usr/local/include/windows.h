@@ -136,13 +136,16 @@ typedef union _LARGE_INTEGER {
  * Windows API Emulation Functions (Sleep, Performance Counters, TickCount)
  * ------------------------------------------------------------------------- */
 static inline void Sleep(DWORD dwMilliseconds) {
-    usleep((useconds_t)dwMilliseconds * 1000);
+    struct timespec req;
+    req.tv_sec = (time_t)(dwMilliseconds / 1000);
+    req.tv_nsec = (long)((dwMilliseconds % 1000) * 1000000L);
+    nanosleep(&req, NULL);
 }
 
 static inline DWORD GetTickCount(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (DWORD)((ts.tv_sec * 1000) + (ts.tv_nsec / 1000000));
+    return (DWORD)(((ULONGLONG)ts.tv_sec * 1000ULL) + ((ULONGLONG)ts.tv_nsec / 1000000ULL));
 }
 
 static inline ULONGLONG GetTickCount64(void) {
