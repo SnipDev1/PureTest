@@ -10,31 +10,51 @@
 *.so
 *.a
 *.lib
+*.bin
+test
+run
 
 # Output and build artifacts
 output/
-PureTestImage/output/
+**/output/
 .cache/
-PureTestImage/.cache/
+**/.cache/
+build/
+**/build/
 *.img
 *.iso
 *.tar.gz
 
 # Local configuration with private credentials
-scripts/ssh-build.env
-PureTestImage/scripts/ssh-build.env
+**/*ssh-build.env
 *.local.bat
 *.local.env
+*.local.json
 
-# Temporary and log files
+# AI Assistant & IDE artifacts
+.claude/
+**/.claude/
+.gemini/
+**/.gemini/
+.vscode/
+**/.vscode/
+.idea/
+**/.idea/
+
+# Temporary, cache, and log files
 *.log
 *.tmp
 /tmp/
+__pycache__/
+*.pyc
 
-# OS and Editor artifacts
+# Benchmark run results
+results/
+**/results/
+DATADISK/
+
+# OS artifacts
 .DS_Store
 Thumbs.db
 *.swp
 *~
-.vscode/
-.idea/
