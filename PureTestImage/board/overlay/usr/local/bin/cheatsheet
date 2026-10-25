@@ -1,0 +1,7 @@
+#!/bin/sh
+# Quick command to view the PureTestImage cheatsheet
+if command -v less >/dev/null 2>&1; then
+    less -R /opt/puretest/CHEATSHEET.md
+else
+    cat /opt/puretest/CHEATSHEET.md
+fi

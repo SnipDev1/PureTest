@@ -1,0 +1,20 @@
+#!/bin/sh
+echo "=== Current Block Devices ==="
+lsblk -f
+echo
+echo "=== Probing for DATADISK ==="
+if blkid -L DATADISK; then
+    echo "Found DATADISK partition via blkid."
+else
+    echo "WARNING: blkid could not find partition labeled 'DATADISK'."
+fi
+echo
+mkdir -p /data
+echo "Mounting DATADISK to /data..."
+if mount -L DATADISK /data 2>&1; then
+    echo "SUCCESS: Mounted on /data"
+    df -h /data
+    ls -lah /data/tests 2>/dev/null || echo "(no /data/tests directory found)"
+else
+    echo "ERROR: Failed to mount DATADISK."
+fi

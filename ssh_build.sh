@@ -1,0 +1,1 @@
+PureTestImage/scripts/ssh_build.sh

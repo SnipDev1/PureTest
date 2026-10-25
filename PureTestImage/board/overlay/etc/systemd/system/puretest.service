@@ -1,0 +1,25 @@
+[Unit]
+Description=PureTestImage benchmark harness
+After=multi-user.target local-fs.target
+Wants=local-fs.target
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+Environment=TERM=linux
+# The harness drives /dev/tty1 directly (no login prompt).
+ExecStart=/opt/puretest/runner.sh
+StandardInput=tty-force
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=no
+Restart=on-failure
+RestartSec=3
+SuccessExitStatus=0 1 2 130
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

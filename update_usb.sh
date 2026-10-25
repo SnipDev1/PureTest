@@ -1,0 +1,1 @@
+PureTestImage/scripts/update_usb.sh

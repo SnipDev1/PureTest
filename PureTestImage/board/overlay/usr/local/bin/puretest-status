@@ -1,0 +1,25 @@
+#!/bin/sh
+echo "======================================================================"
+echo " PURETESTIMAGE - HARNESS & SYSTEM STATUS"
+echo "======================================================================"
+echo ">>> puretest.service (systemctl) <<<"
+systemctl status puretest --no-pager
+echo
+echo ">>> /data mount status <<<"
+if mountpoint -q /data 2>/dev/null; then
+    echo "  /data is MOUNTED:"
+    df -h /data
+else
+    echo "  WARNING: /data is NOT mounted (offline mode)"
+fi
+echo
+echo ">>> Block devices (lsblk -f) <<<"
+lsblk -f 2>/dev/null || blkid 2>/dev/null
+echo
+echo ">>> /tmp/puretest.log (last 25 lines) <<<"
+if [ -f /tmp/puretest.log ]; then
+    tail -n 25 /tmp/puretest.log
+else
+    echo "  (No /tmp/puretest.log found yet)"
+fi
+echo "======================================================================"

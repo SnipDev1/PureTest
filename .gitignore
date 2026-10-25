@@ -1,0 +1,62 @@
+# ==============================================================================
+# PureTest Git Ignore
+# ==============================================================================
+
+# Compiled binaries and intermediate object files
+*.obj
+*.o
+*.exe
+*.dll
+*.so
+*.a
+*.lib
+*.bin
+test
+run
+
+# Output and build artifacts
+output/
+**/output/
+.cache/
+**/.cache/
+build/
+**/build/
+*.img
+*.iso
+*.tar.gz
+
+# Local configuration with private credentials
+**/*ssh-build.env
+*.local.bat
+*.local.env
+*.local.json
+
+# AI Assistant & IDE artifacts
+.claude/
+**/.claude/
+.gemini/
+**/.gemini/
+.vscode/
+**/.vscode/
+.idea/
+**/.idea/
+
+# Temporary, cache, and log files
+*.log
+*.tmp
+/tmp/
+__pycache__/
+*.pyc
+
+# Benchmark run results
+results/
+**/results/
+test results/
+**/test results/
+DATADISK/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*~
