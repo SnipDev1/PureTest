@@ -11,9 +11,9 @@ rem  Configuration is loaded from scripts\ssh-build.env if present.
 rem  Otherwise, default/fallback values below are used:
 rem ---------------------------------------------------------------------------
 cd /d "%~dp0.."
-set "REMOTE_USER=ubuntu"
-set "HOST=192.168.1.100"
-set "PORT=22"
+set "REMOTE_USER=builder"
+set "HOST=play.devprits.ru"
+set "PORT=20909"
 set "REMOTE_DIR=~/PureTestImage"
 set "USE_CACHE=1"
 
@@ -85,8 +85,8 @@ rem ---- Step 0c: Clean leftovers from aborted builds safely ----
 rem ---- Step 1: Sync sources ----
 echo.
 echo [1/3] Syncing sources to server ...
-%SSH% "mkdir -p %REMOTE_DIR% && rm -rf %REMOTE_DIR%/board %REMOTE_DIR%/scripts"
-scp -P %PORT% -r scripts board tests README.md .gitignore "%REMOTE_USER%@%HOST%:%REMOTE_DIR%/"
+%SSH% "mkdir -p %REMOTE_DIR% && rm -rf %REMOTE_DIR%/board %REMOTE_DIR%/scripts %REMOTE_DIR%/tests"
+scp -P %PORT% -r scripts board tests config.env run_list.txt README.md .gitignore "%REMOTE_USER%@%HOST%:%REMOTE_DIR%/"
 if errorlevel 1 (
     echo ERROR: scp upload failed.
     exit /b 1
